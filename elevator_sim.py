@@ -163,6 +163,7 @@ class ElevatorBank:
         self.default_floors = default_floors
         self.move_speed = move_speed
         self.call_list = []
+        self.active_calls = []
 
     def all_in_use(self):
         for elevator in self.elevators:
@@ -233,52 +234,60 @@ def simulate_elevators(num_elevators, num_floors, default_floors, default_reset_
         bank.elevators[index].current_floor = floor
         print(bank.elevators[index].current_floor)
 
-    for floor in bank.floors[1:]:
-        floor.next_arrival_time = abs(random.gauss((1/f_down(t)), sigma))
+    bank.floors[1].next_arrival_time = round(abs(random.gauss((1/f_down(t)), sigma)))
 
-    bank.floors[0].next_arrival_time = abs(random.gauss((1/f_up(t)), sigma))
+    bank.floors[0].next_arrival_time = round(abs(random.gauss((1/f_up(t)), sigma)))
 
     completed_rides = []
     cid = 0
     
-    t = min(floor.next_arrival_time for floor in bank.floors)
+    t = round(min(bank.floors[0].next_arrival_time, bank.floors[1].next_arrival_time))
 
     for elevator in bank.elevators:
         elevator.last_time_used = t
 
     while t < max_time:
 
+        print(t)
+
         # for elevator in bank.elevators:
         #     if t - elevator.last_time_used < default_reset_time:
         #         floor = bank.closest_unoccupied_default(elevator)
         #         bank.move_elevator(elevator, floor)
+        #         print('moved elevator', elevator.elev_id, 'to default floor', floor)
 
         #For adding someone to floor 0
-        if t == bank.floors[0].next_arrival_time:
+        if t == round(bank.floors[0].next_arrival_time):
             passenger = Passenger(cid, random.randrange(1, num_floors), t)
             bank.floors[0].enqueue(passenger)
+            print('added passenger', cid, 'to floor', 0)
             cid += 1
 
-            bank.floors[0].next_arrival_time = t + abs(random.gauss((1/f_up(t)),
-            sigma))
+            bank.floors[0].next_arrival_time = t + round(abs(random.gauss((1/f_up(t)),
+            sigma)))
 
         #For adding someone to residential floors
-        for floor in bank.floors[1:]:
-            if t == floor.next_arrival_time:
-                passenger = Passenger(cid, 1, t)
-                floor.enqueue(passenger)
-                cid += 1
+        if t == round(bank.floors[1].next_arrival_time):
+            passenger = Passenger(cid, 0, t)
+            floor = bank.floors[random.randrange(1, num_floors)]
+            floor.enqueue(passenger)
+            print('added passenger', cid, 'to floor', floor.floor)
+            cid += 1
 
-                floor.next_arrival_time = t + abs(random.gauss((1/f_down(t)), 
-                sigma))
+            bank.floors[1].next_arrival_time = t + round(abs(random.gauss((1/f_down(t)), 
+            sigma)))
 
         #For calling an elevator to waiting passengers        
         for floor in bank.floors:
-            if not floor.is_empty() and floor.floor not in bank.call_list:
+            if not floor.is_empty() and floor.floor not in bank.call_list and \
+                floor.floor not in bank.active_calls:
                 bank.place_elevator_call(floor.floor)
+                print('placed call to', floor.floor)
+                print('call list:', bank.call_list)
         
         #For assigning elevators to called floors
         if not bank.all_in_use():
+            floors_to_remove = []
             for called_floor in bank.call_list:
                 elevator = bank.get_closest(called_floor)
                 floor = bank.floors[called_floor]
@@ -286,15 +295,26 @@ def simulate_elevators(num_elevators, num_floors, default_floors, default_reset_
                 floor_diff = elevator.get_distance(called_floor)
                 elevator.next_stop_time = t + bank.move_speed*floor_diff
                 elevator.called_floor = called_floor
+                print('assigned elevator', elevator.elev_id, 'to call from floor', called_floor)
+                elevator.in_use = True
 
-                bank.call_list.remove(called_floor)
+                
+                floors_to_remove.append(called_floor)
+                bank.active_calls.append(called_floor)
 
                 if bank.all_in_use():
                     break
+            for rm_floor in floors_to_remove:
+                bank.call_list.remove(rm_floor)
+                print('call list:', bank.call_list)
 
         #For processing a non idle elevator at its stop
         for elevator in bank.elevators:
-            if t == elevator.next_stop_time:
+            if elevator.next_stop_time == None:
+                check = None
+            else:
+                check = round(elevator.next_stop_time)
+            if t == check:
                 
                 #For elevators dropping off passengers
                 if not elevator.is_empty():
@@ -304,16 +324,19 @@ def simulate_elevators(num_elevators, num_floors, default_floors, default_reset_
                             passenger.departure_time = t
                             completed_rides.append(passenger)
                             elevator.passengers.remove(passenger)
+                            print('dropped passenger', passenger.cid, 'at floor', elevator.current_floor)
                     elevator.in_use = False
 
                 #For elevators that were called to a floor
                 if elevator.is_empty() and elevator.called_floor != None:
                     bank.move_elevator(elevator, elevator.called_floor)
                     floor = bank.floors[elevator.current_floor]
+                    bank.active_calls.remove(elevator.called_floor)
 
                     elevator.load(floor)
                     elevator.in_use = True
                     elevator.called_floor = None
+                    print('elevator', elevator.elev_id, 'arrives at floor', elevator.current_floor, ', picks up passengers')
 
                     floor_diff = abs(called_floor - elevator.passengers[0].floor)
                     elevator.next_stop_time = t + bank.move_speed*floor_diff
@@ -321,10 +344,10 @@ def simulate_elevators(num_elevators, num_floors, default_floors, default_reset_
                 #For elevators that just dropped off passengers and load more
                 if elevator.is_empty() and elevator.called_floor == None:
                     floor = bank.floors[elevator.current_floor]
-                    if not floor.is_empty():
+                    if not floor.is_empty() and floor.floor not in bank.active_calls:
                         elevator.load(floor)
                         elevator.in_use = True
-                        
+                        print('elevator', elevator.elev_id, 'picks up passengers from floor', elevator.current_floor)
                         floor_diff = abs(called_floor - elevator.passengers[0].floor)
                         elevator.next_stop_time = t + bank.move_speed*floor_diff
 
@@ -333,12 +356,27 @@ def simulate_elevators(num_elevators, num_floors, default_floors, default_reset_
                     
                     else:
                         elevator.last_time_used = t
+                        elevator.next_stop_time = None
+
+        print('next elev stop:', bank.get_next_stop())
+        print('next down pass:', bank.floors[1].next_arrival_time)
+        print('next up pass:', bank.floors[0].next_arrival_time)
+        prev_t = t
 
         if bank.get_next_stop() == None:
-            t = min(floor.next_arrival_time for floor in bank.floors)
+            t = min(bank.floors[0].next_arrival_time, 
+            bank.floors[1].next_arrival_time)
         else:
-            t = min(min(floor.next_arrival_time for floor in bank.floors), 
-            bank.get_next_stop())
-        print(t)
-        print(completed_rides)
-    return completed_rides
+            t = min(bank.floors[0].next_arrival_time, 
+            bank.floors[1].next_arrival_time, bank.get_next_stop())
+        
+        
+        
+        non_completed_rides = []
+        for floor in elevator.floors:
+            non_completed_rides += floor.queue
+
+        # if t == prev_t:
+        #     break
+    
+    return completed_rides, non_completed_rides
