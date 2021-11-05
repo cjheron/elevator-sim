@@ -206,7 +206,8 @@ class ElevatorBank:
             if elevator.at_default():
                 unocc_default_list.remove(elevator.current_floor)
         if len(unocc_default_list) == 0:
-            return None
+            return min(abs(elevator.current_floor - floor) for floor in
+            self.default_floors)
         else:
             return min(abs(elevator.current_floor - floor) for floor in 
             unocc_default_list)
@@ -228,11 +229,8 @@ def simulate_elevators(num_elevators, num_floors, default_floors, default_reset_
 
     t = 0
 
-    print(bank.elevators)
-
     for index, floor in enumerate(default_floors):
         bank.elevators[index].current_floor = floor
-        print(bank.elevators[index].current_floor)
 
     bank.floors[1].next_arrival_time = round(abs(random.gauss((1/f_down(t)), sigma)))
 
@@ -250,11 +248,12 @@ def simulate_elevators(num_elevators, num_floors, default_floors, default_reset_
 
         print(t)
 
-        # for elevator in bank.elevators:
-        #     if t - elevator.last_time_used < default_reset_time:
-        #         floor = bank.closest_unoccupied_default(elevator)
-        #         bank.move_elevator(elevator, floor)
-        #         print('moved elevator', elevator.elev_id, 'to default floor', floor)
+        for elevator in bank.elevators:
+            if (t - elevator.last_time_used) < default_reset_time and \
+                elevator.current_floor not in default_floors:
+                floor = bank.closest_unoccupied_default(elevator)
+                bank.move_elevator(elevator, floor)
+                print('moved elevator', elevator.elev_id, 'to default floor', floor)
 
         #For adding someone to floor 0
         if t == round(bank.floors[0].next_arrival_time):
@@ -379,4 +378,6 @@ def simulate_elevators(num_elevators, num_floors, default_floors, default_reset_
         # if t == prev_t:
         #     break
     
-    return completed_rides, non_completed_rides
+    wait_sum = sum(passenger.departure_time - passenger.arrival_time 
+    for passenger in completed_rides)
+    return completed_rides, non_completed_rides, wait_sum
