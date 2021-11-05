@@ -114,7 +114,7 @@ class Elevator:
         return abs(self.current_floor - floor)
 
     def at_default(self):
-        return self.current_floor in default_floors
+        return self.current_floor in self.default_floors
 
     def load(self, floor):
         open_spots = self.get_open_spots()
@@ -154,28 +154,31 @@ class ElevatorBank:
         elev_list = []
         for i in range(num_elevators):
             elev_list.append(Elevator(i, default_floors, floor_list, 
-            move_speed, stop_speed, max_capacity))
+            move_speed, max_capacity))
 
         self.elevators = elev_list
         self.num_elevators = num_elevators
         self.floors = floor_list
         self.num_floors = num_floors
+        self.default_floors = default_floors
+        self.move_speed = move_speed
         self.call_list = []
 
     def all_in_use(self):
-        for elevator in bank.elevators:
+        for elevator in self.elevators:
             if not elevator.in_use:
                 return False
         return True
 
     def get_closest(self, floor):
-        best == None
+        best = None
         for elevator in self.elevators:
             if not elevator.in_use:
                 if best == None:
                     best = elevator
-                elif elevator.get_distance(floor) < best.get_distance(floor):
-                    best = elevator
+                else: 
+                    if elevator.get_distance(floor) < best.get_distance(floor):
+                        best = elevator
         return best
 
     def move_elevator(self, elevator, floor):
@@ -183,6 +186,18 @@ class ElevatorBank:
 
     def place_elevator_call(self, floor):
         self.call_list.append(floor)
+
+    def get_next_stop(self):
+        next = None
+        for elevator in self.elevators:
+            if next == None:
+                if elevator.next_stop_time != None:
+                    next = elevator.next_stop_time
+            elif next != None and elevator.next_stop_time != None:
+                if elevator.next_stop_time < next:
+                    next = elevator.next_stop_time
+        return next
+
 
     def closest_unoccupied_default(self, elevator):
         unocc_default_list = self.default_floors.copy()
@@ -199,7 +214,7 @@ from sympy import *
 import random
 
 def simulate_elevators(num_elevators, num_floors, default_floors, default_reset_time, 
-    move_speed, max_capacity, max_time, up_freq_expr, down_freq_expr):
+    move_speed, max_capacity, max_time, up_freq_expr, down_freq_expr, sigma):
 
     x = Symbol('x')
     f_up = parse_expr(up_freq_expr)
@@ -212,8 +227,11 @@ def simulate_elevators(num_elevators, num_floors, default_floors, default_reset_
 
     t = 0
 
+    print(bank.elevators)
+
     for index, floor in enumerate(default_floors):
         bank.elevators[index].current_floor = floor
+        print(bank.elevators[index].current_floor)
 
     for floor in bank.floors[1:]:
         floor.next_arrival_time = abs(random.gauss((1/f_down(t)), sigma))
@@ -230,12 +248,10 @@ def simulate_elevators(num_elevators, num_floors, default_floors, default_reset_
 
     while t < max_time:
 
-        
-        for elevator in bank.elevators:
-            if t - elevator.last_time_used < default_reset_time:
-                floor = bank.closest_unoccupied_default(elevator)
-                bank.move_elevator(elevator, floor)
-
+        # for elevator in bank.elevators:
+        #     if t - elevator.last_time_used < default_reset_time:
+        #         floor = bank.closest_unoccupied_default(elevator)
+        #         bank.move_elevator(elevator, floor)
 
         #For adding someone to floor 0
         if t == bank.floors[0].next_arrival_time:
@@ -260,7 +276,7 @@ def simulate_elevators(num_elevators, num_floors, default_floors, default_reset_
         for floor in bank.floors:
             if not floor.is_empty() and floor.floor not in bank.call_list:
                 bank.place_elevator_call(floor.floor)
-
+        
         #For assigning elevators to called floors
         if not bank.all_in_use():
             for called_floor in bank.call_list:
@@ -305,7 +321,7 @@ def simulate_elevators(num_elevators, num_floors, default_floors, default_reset_
                 #For elevators that just dropped off passengers and load more
                 if elevator.is_empty() and elevator.called_floor == None:
                     floor = bank.floors[elevator.current_floor]
-                    if not floor.queue.is_empty():
+                    if not floor.is_empty():
                         elevator.load(floor)
                         elevator.in_use = True
                         
@@ -314,19 +330,15 @@ def simulate_elevators(num_elevators, num_floors, default_floors, default_reset_
 
                         if floor.floor in bank.call_list:
                             bank.call_list.remove(floor.floor)
-
+                    
                     else:
-                        
+                        elevator.last_time_used = t
 
-
-
-
-
-
-
-
-
-
-
-
-
+        if bank.get_next_stop() == None:
+            t = min(floor.next_arrival_time for floor in bank.floors)
+        else:
+            t = min(min(floor.next_arrival_time for floor in bank.floors), 
+            bank.get_next_stop())
+        print(t)
+        print(completed_rides)
+    return completed_rides
