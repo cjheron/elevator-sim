@@ -216,7 +216,7 @@ from sympy import *
 import random
 
 def simulate_elevators(num_elevators, num_floors, default_floors, default_reset_time, 
-    move_speed, max_capacity, max_time, up_freq_expr, down_freq_expr, sigma):
+    move_speed, max_capacity, max_time, up_freq_expr, down_freq_expr, min_freq, sigma):
 
     x = Symbol('x')
     f_up = parse_expr(up_freq_expr)
@@ -232,9 +232,9 @@ def simulate_elevators(num_elevators, num_floors, default_floors, default_reset_
     for index, floor in enumerate(default_floors):
         bank.elevators[index].current_floor = floor
 
-    bank.floors[1].next_arrival_time = round(abs(random.gauss((1/f_down(t)), sigma)))
+    bank.floors[1].next_arrival_time = max(round(abs(random.gauss((1/re(f_down(t))), sigma))), min_freq)
 
-    bank.floors[0].next_arrival_time = round(abs(random.gauss((1/f_up(t)), sigma)))
+    bank.floors[0].next_arrival_time = max(round(abs(random.gauss((1/re(f_up(t))), sigma))), min_freq)
 
     completed_rides = []
     cid = 0
@@ -262,8 +262,8 @@ def simulate_elevators(num_elevators, num_floors, default_floors, default_reset_
             # print('added passenger', cid, 'to floor', 0)
             cid += 1
 
-            bank.floors[0].next_arrival_time = t + round(abs(random.gauss((1/f_up(t)),
-            sigma)))
+            bank.floors[0].next_arrival_time = t + max(round(abs(random.gauss((1/re(f_up(t))), 
+            sigma))), min_freq)
 
         #For adding someone to residential floors
         if t == round(bank.floors[1].next_arrival_time):
@@ -273,8 +273,8 @@ def simulate_elevators(num_elevators, num_floors, default_floors, default_reset_
             # print('added passenger', cid, 'to floor', floor.floor)
             cid += 1
 
-            bank.floors[1].next_arrival_time = t + round(abs(random.gauss((1/f_down(t)), 
-            sigma)))
+            bank.floors[1].next_arrival_time = t + max(round(abs(random.gauss((1/re(f_down(t))), 
+            sigma))), min_freq)
 
         #For calling an elevator to waiting passengers        
         for floor in bank.floors:
@@ -297,7 +297,6 @@ def simulate_elevators(num_elevators, num_floors, default_floors, default_reset_
                 # print('assigned elevator', elevator.elev_id, 'to call from floor', called_floor)
                 elevator.in_use = True
 
-                
                 floors_to_remove.append(called_floor)
                 bank.active_calls.append(called_floor)
 
@@ -369,8 +368,6 @@ def simulate_elevators(num_elevators, num_floors, default_floors, default_reset_
             t = min(bank.floors[0].next_arrival_time, 
             bank.floors[1].next_arrival_time, bank.get_next_stop())
         
-        
-        
         non_completed_rides = []
         for floor in elevator.floors:
             non_completed_rides += floor.queue
@@ -384,51 +381,54 @@ def simulate_elevators(num_elevators, num_floors, default_floors, default_reset_
     return wait_sum/len(completed_rides)
 
 def run_trials(num_elevators, num_floors, default_floors, default_reset_time, 
-    move_speed, max_capacity, max_time, up_freq_expr, down_freq_expr, sigma,
+    move_speed, max_capacity, max_time, up_freq_expr, down_freq_expr, sigma, min_freq,
     num_trials):
 
     waits = 0
     
     for i in range(num_trials):
         waits += simulate_elevators(num_elevators, num_floors, default_floors, default_reset_time, 
-        move_speed, max_capacity, max_time, up_freq_expr, down_freq_expr, sigma)
-        print(i)
+        move_speed, max_capacity, max_time, up_freq_expr, down_freq_expr, min_freq, sigma)
 
     return waits/num_trials
 
 import itertools
 import click
+from tqdm import tqdm
 
 def compute_product_list(num_elevators, num_floors):
-    return itertools.product(range(num_floors), repeat = num_elevators)
+    rv = []
+    for tup in itertools.product(range(num_floors), repeat = num_elevators):
+        if tuple(reversed(tup)) not in rv:
+            rv.append(tup)
+    return rv
 
 @click.command()
-@click.argument('num_elevators', type = int)
-@click.argument('num_floors', type = int)
-@click.argument('default_reset_time', type = int)
-@click.argument('move_speed', type = int)
-@click.argument('max_capacity', type = int)
-@click.argument('max_time', type = int)
-@click.argument('up_freq_expr', type = str)
-@click.argument('down_freq_expr', type = str)
-@click.argument('sigma', type = int)
-@click.argument('num_trials', type = int)
+@click.option('--num-elevators', type = int, help = 'number of elevators in the bank')
+@click.option('--num-floors', type = int, help = 'number of floors serviced')
+@click.option('--default-reset-time', type = int, help = 'time before an elevator resets to a resting floor')
+@click.option('--move-speed', type = int, help = 'time for elevator to move one floor')
+@click.option('--max-capacity', default = 10, type = int, help = 'max capacity of an elevator')
+@click.option('--max-time', type = int, help = 'maximum time for the simulation to run per trial (seconds)')
+@click.option('--up-freq-expr', type = str, help = 'function for up call frequency')
+@click.option('--down-freq-expr', type = str, help = 'function for down call frequency')
+@click.option('--min-freq', type = int, help = 'the minimum frequency for elevator calls')
+@click.option('--sigma', type = int, help = 'standard deviation for elevator call times')
+@click.option('--num-trials', type = int, help = 'number of trials to complete per option')
 
 def cmd(num_elevators, num_floors, default_reset_time, 
-    move_speed, max_capacity, max_time, up_freq_expr, down_freq_expr, sigma,
+    move_speed, max_capacity, max_time, up_freq_expr, down_freq_expr, min_freq, sigma,
     num_trials):
     
     wait_dict = {}
 
-    for default_tuple in compute_product_list(num_elevators, num_floors):
+    for default_tuple in tqdm(compute_product_list(num_elevators, num_floors)):
         default_floors = list(default_tuple)
 
         wait_dict[default_tuple] = run_trials(num_elevators, num_floors, 
         default_floors, default_reset_time, move_speed, max_capacity, 
-        max_time, up_freq_expr, down_freq_expr, sigma, num_trials)
+        max_time, up_freq_expr, down_freq_expr, min_freq, sigma, num_trials)
     
-    print(wait_dict)
-
     best = min(wait_dict, key = wait_dict.get)
     
     print(best, wait_dict[best])
