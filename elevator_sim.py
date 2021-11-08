@@ -61,8 +61,8 @@ class Passenger:
     A passenger using our elevator system
     '''
 
-    def __init__(self, cid, floor, arrival_time):
-        self.cid = cid
+    def __init__(self, pid, floor, arrival_time):
+        self.pid = pid
         self.floor = floor
         self.arrival_time = arrival_time
         self.departure_time = None
@@ -77,7 +77,7 @@ class Passenger:
         return self.floor
         
     def __str__(self):
-        return "Passenger({}, {}, {})".format(self.cid, self.floor, self.arrival_time)
+        return "Passenger({}, {}, {})".format(self.pid, self.floor, self.arrival_time)
     
     def __repr__(self):
         return str(self)
@@ -87,13 +87,12 @@ class Elevator:
     An elevator in our elevator bank
     '''
 
-    def __init__(self, elev_id, default_floors, floors, move_speed, max_capacity):
+    def __init__(self, elev_id, default_floors, floors, max_capacity):
         self.elev_id = elev_id
         self.default_floors = default_floors
         self.in_use = False
         self.direction = None
         self.current_floor = None
-        self.move_speed = move_speed
         self.max_capacity = max_capacity
         self.passengers = []
         self.floors = floors
@@ -154,7 +153,7 @@ class ElevatorBank:
         elev_list = []
         for i in range(num_elevators):
             elev_list.append(Elevator(i, default_floors, floor_list, 
-            move_speed, max_capacity))
+            max_capacity))
 
         self.elevators = elev_list
         self.num_elevators = num_elevators
@@ -232,12 +231,12 @@ def simulate_elevators(num_elevators, num_floors, default_floors, default_reset_
     for index, floor in enumerate(default_floors):
         bank.elevators[index].current_floor = floor
 
-    bank.floors[1].next_arrival_time = max(round(abs(random.gauss((1/re(f_down(t))), sigma))), min_freq)
+    bank.floors[1].next_arrival_time = min(round(abs(random.gauss((1/re(f_down(t))), sigma))), min_freq)
 
-    bank.floors[0].next_arrival_time = max(round(abs(random.gauss((1/re(f_up(t))), sigma))), min_freq)
+    bank.floors[0].next_arrival_time = min(round(abs(random.gauss((1/re(f_up(t))), sigma))), min_freq)
 
     completed_rides = []
-    cid = 0
+    pid = 0
     
     t = round(min(bank.floors[0].next_arrival_time, bank.floors[1].next_arrival_time))
 
@@ -257,23 +256,23 @@ def simulate_elevators(num_elevators, num_floors, default_floors, default_reset_
 
         #For adding someone to floor 0
         if t == round(bank.floors[0].next_arrival_time):
-            passenger = Passenger(cid, random.randrange(1, num_floors), t)
+            passenger = Passenger(pid, random.randrange(1, num_floors), t)
             bank.floors[0].enqueue(passenger)
-            # print('added passenger', cid, 'to floor', 0)
-            cid += 1
+            # print('added passenger', pid, 'to floor', 0)
+            pid += 1
 
-            bank.floors[0].next_arrival_time = t + max(round(abs(random.gauss((1/re(f_up(t))), 
+            bank.floors[0].next_arrival_time = t + min(round(abs(random.gauss((1/re(f_up(t))), 
             sigma))), min_freq)
 
         #For adding someone to residential floors
         if t == round(bank.floors[1].next_arrival_time):
-            passenger = Passenger(cid, 0, t)
+            passenger = Passenger(pid, 0, t)
             floor = bank.floors[random.randrange(1, num_floors)]
             floor.enqueue(passenger)
-            # print('added passenger', cid, 'to floor', floor.floor)
-            cid += 1
+            # print('added passenger', pid, 'to floor', floor.floor)
+            pid += 1
 
-            bank.floors[1].next_arrival_time = t + max(round(abs(random.gauss((1/re(f_down(t))), 
+            bank.floors[1].next_arrival_time = t + min(round(abs(random.gauss((1/re(f_down(t))), 
             sigma))), min_freq)
 
         #For calling an elevator to waiting passengers        
@@ -322,7 +321,7 @@ def simulate_elevators(num_elevators, num_floors, default_floors, default_reset_
                             passenger.departure_time = t
                             completed_rides.append(passenger)
                             elevator.passengers.remove(passenger)
-                            # print('dropped passenger', passenger.cid, 'at floor', elevator.current_floor)
+                            # print('dropped passenger', passenger.pid, 'at floor', elevator.current_floor)
                     elevator.in_use = False
 
                 #For elevators that were called to a floor
@@ -386,7 +385,7 @@ def run_trials(num_elevators, num_floors, default_floors, default_reset_time,
 
     waits = 0
     
-    for i in range(num_trials):
+    for i in tqdm(range(num_trials)):
         waits += simulate_elevators(num_elevators, num_floors, default_floors, default_reset_time, 
         move_speed, max_capacity, max_time, up_freq_expr, down_freq_expr, min_freq, sigma)
 
@@ -415,23 +414,29 @@ def compute_product_list(num_elevators, num_floors):
 @click.option('--min-freq', type = int, help = 'the minimum frequency for elevator calls')
 @click.option('--sigma', type = int, help = 'standard deviation for elevator call times')
 @click.option('--num-trials', type = int, help = 'number of trials to complete per option')
+@click.option('--compare-floors', default = None, type = tuple, help = '(optional) the default floors to compare to')
 
 def cmd(num_elevators, num_floors, default_reset_time, 
     move_speed, max_capacity, max_time, up_freq_expr, down_freq_expr, min_freq, sigma,
-    num_trials):
+    num_trials, compare_floors):
     
     wait_dict = {}
 
     for default_tuple in tqdm(compute_product_list(num_elevators, num_floors)):
         default_floors = list(default_tuple)
 
-        wait_dict[default_tuple] = run_trials(num_elevators, num_floors, 
+        wait_dict[default_tuple] = float(run_trials(num_elevators, num_floors, 
         default_floors, default_reset_time, move_speed, max_capacity, 
-        max_time, up_freq_expr, down_freq_expr, min_freq, sigma, num_trials)
+        max_time, up_freq_expr, down_freq_expr, min_freq, sigma, num_trials))
     
     best = min(wait_dict, key = wait_dict.get)
     
-    print(best, wait_dict[best])
+    print('Full wait dictionary:', wait_dict)
+    print('Optimal default floors:', best)
+    print('Average wait time:', wait_dict[best])
+    if compare_floors != None:
+        diff = wait_dict[best] - wait_dict[compare_floors]
+        print('Optimal is better than entered floors by', diff, 't per ride')
     return best, wait_dict[best]
 
 if __name__ == '__main__':
